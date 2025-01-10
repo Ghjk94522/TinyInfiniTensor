@@ -9,6 +9,27 @@
 #include <unordered_set>
 
 namespace infini {
+  class BlockInfo {
+    size_t offset;
+    size_t length;
+    bool available;
+
+    public:
+    BlockInfo (size_t off, size_t len, bool s=true) : offset(off), length(len), available(s) {}
+    size_t getOffset() {
+      return offset;
+    }
+
+    size_t getLength() {
+      return length;
+    }
+
+    bool isAvailable() {
+      return available;
+    }
+  };
+
+
   class Allocator
   {
   private:
