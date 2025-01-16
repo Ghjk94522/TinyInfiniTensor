@@ -10,7 +10,28 @@ Shape infer_broadcast(const Shape &A, const Shape &B) {
     // REF: https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md
     // =================================== 作业 ===================================
     
-    return {};
+    if (A.size() < B.size()) {
+        // A.insert(A.begin(), B.size() - A.size(), 1);
+        for (size_t i = 0; i < B.size() - A.size(); i++) {
+            auto pos = A.begin();
+            A.insert(pos, 1);
+        }
+    } else if (B.size() < A.size()) {
+        // B.insert(B.begin(), int(A.size() - B.size()), 1);
+    }
+
+    Shape newShape = A;
+
+    for (size_t i = 0; i < A.size(); i++) {
+        if (A[i] != B[i]) {
+            if (A[i] != 1 && B[i] != 1) {
+                IT_ASSERT(false, "cannot broadcast with different shape and not equal to 1.");
+            }
+
+            if (B[i] != 1) newShape[i] = B[i];
+        }
+    }
+    return newShape;
 }
 
 int get_real_axis(const int &axis, const int &rank) {

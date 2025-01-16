@@ -34,7 +34,12 @@ namespace infini
         // REF: https://onnx.ai/onnx/operators/onnx__Transpose.html#transpose-21
         // =================================== 作业 ===================================
 
-        return std::nullopt;
+        Shape newShape = Shape(rank);
+        for (int i = 0; i < rank; i++) {
+            newShape[i] = input_dim[this->getPermute()[i]];
+        }
+
+        return vector<Shape>(1, newShape);
     }
 
     std::string TransposeObj::toString() const

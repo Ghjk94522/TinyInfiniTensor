@@ -13,6 +13,7 @@ namespace infini
         // the longest data type currently supported by the DataType field of
         // the tensor
         alignment = sizeof(uint64_t);
+        block_table.emplace(0, 0xfffffff);
     }
 
     Allocator::~Allocator()
@@ -33,7 +34,29 @@ namespace infini
         // TODO: 设计一个算法来分配内存，返回起始地址偏移量
         // =================================== 作业 ===================================
 
-        return 0;
+        size_t offs = 0;
+        bool flag = false;
+        for (auto& pair : block_table) {
+            if (pair.second >= size) {
+                offs = pair.first;
+                flag = true;
+                break;
+            }
+        }
+        IT_ASSERT(flag, "cannot find a free mem block.");
+
+        if (block_table[offs] - size > 0)
+            block_table[offs + size] = block_table[offs] - size;
+        auto iter = block_table.find(offs);
+        if (iter == block_table.end()) 
+            IT_ASSERT(false, "cannot find the block iter.");
+        block_table.erase(iter);
+
+        used += size;
+        if (used > peak)
+            peak = used;
+
+        return offs;
     }
 
     void Allocator::free(size_t addr, size_t size)
@@ -44,6 +67,17 @@ namespace infini
         // =================================== 作业 ===================================
         // TODO: 设计一个算法来回收内存
         // =================================== 作业 ===================================
+        size_t candidate = addr + size;
+        auto iter = block_table.find(candidate);
+        if (iter != block_table.end()) {
+            size_t candiSize = block_table[candidate];
+            block_table[addr] = size + candiSize;
+            block_table.erase(iter);
+        } else {
+            block_table[addr] = size;
+        }
+
+        used -= size;
     }
 
     void *Allocator::getPtr()
