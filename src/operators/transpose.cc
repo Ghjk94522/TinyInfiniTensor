@@ -29,11 +29,6 @@ namespace infini
         auto output_dim = input_dim;
         int rank = A->getRank();
 
-        // =================================== 作业 ===================================
-        // TODO：修改 output_dim，返回正确的 transpose 后的 shape
-        // REF: https://onnx.ai/onnx/operators/onnx__Transpose.html#transpose-21
-        // =================================== 作业 ===================================
-
         Shape newShape = Shape(rank);
         for (int i = 0; i < rank; i++) {
             newShape[i] = input_dim[this->getPermute()[i]];

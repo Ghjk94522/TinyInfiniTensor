@@ -9,27 +9,6 @@
 #include <unordered_set>
 
 namespace infini {
-  class BlockInfo {
-    size_t offset;
-    size_t length;
-    bool available;
-
-    public:
-    BlockInfo (size_t off, size_t len, bool s=true) : offset(off), length(len), available(s) {}
-    size_t getOffset() {
-      return offset;
-    }
-
-    size_t getLength() {
-      return length;
-    }
-
-    bool isAvailable() {
-      return available;
-    }
-  };
-
-
   class Allocator
   {
   private:
@@ -44,10 +23,6 @@ namespace infini {
     // pointer to the memory actually allocated
     void *ptr;
 
-    // =================================== 作业 ===================================
-    // TODO：可能需要设计一个数据结构来存储free block，以便于管理和合并
-    // HINT: 可以使用一个 map 来存储 free block，key 为 block 的起始/结尾地址，value 为 block 的大小
-    // =================================== 作业 ===================================
     std::map<size_t, size_t> block_table;
 
   public:

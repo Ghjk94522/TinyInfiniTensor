@@ -30,10 +30,6 @@ namespace infini
         // pad the size to the multiple of alignment
         size = this->getAlignedSize(size);
 
-        // =================================== 作业 ===================================
-        // TODO: 设计一个算法来分配内存，返回起始地址偏移量
-        // =================================== 作业 ===================================
-
         size_t offs = 0;
         bool flag = false;
         for (auto& pair : block_table) {
@@ -64,9 +60,6 @@ namespace infini
         IT_ASSERT(this->ptr == nullptr);
         size = getAlignedSize(size);
 
-        // =================================== 作业 ===================================
-        // TODO: 设计一个算法来回收内存
-        // =================================== 作业 ===================================
         size_t candidate = addr + size;
         auto iter = block_table.find(candidate);
         if (iter != block_table.end()) {

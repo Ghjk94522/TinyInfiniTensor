@@ -1,4 +1,6 @@
 #include "core/graph.h"
+#include "operators/transpose.h"
+#include "operators/matmul.h"
 #include <algorithm>
 #include <numeric>
 #include <queue>
@@ -106,6 +108,61 @@ namespace infini
         // 1. 去除冗余的算子（例如，两个相邻的算子都是 transpose 算子，且做的是相反的操作，可以将其全部删除）
         // 2. 合并算子（例如，矩阵乘算子中含有属性transA、transB，如果其输入存在transpose，且对最后两个维度做交换，就可以将transpose融入到矩阵乘算子的属性中去）
         // =================================== 作业 ===================================
+
+        /// opt rule 1: del the oppesite transpose ops
+        if (!this->sorted)
+            topo_sort();
+
+        std::vector<Operator> toRemoved;
+
+        for (auto op : ops) {
+            if (auto transOp = dynamic_cast<TransposeObj *>(op.get())) {
+                std::vector<Operator> toRemovedSuccessor;
+                for (auto successor : transOp->getSuccessors()) {
+                    if (auto transOpSuc = dynamic_cast<TransposeObj *>(successor.get())) {
+                        if (transOp->getOutput() == transOpSuc->getInputs(0)) {
+                            // now check if the permute same
+                            auto permA = transOp->getPermute();
+                            auto permB = transOpSuc->getPermute();
+                            if (permA != permB)
+                                continue;
+                            
+                            auto oriTensor = transOp->getInputs(0);
+                            auto dstTensor = transOpSuc->getOutput();
+
+                            // replace all uses with the oriTensor
+                            for (auto op : dstTensor->getTargets()) {
+                                auto tarInputs = op->getInputs();
+                                auto iter = find(tarInputs.begin(), tarInputs.end(), dstTensor);
+                                IT_ASSERT(iter != tarInputs.end(), "can not find tensor in tar op");
+
+                                *iter = oriTensor;
+                                oriTensor->addTarget(op);
+                                dstTensor->removeTarget(op);
+                            }
+
+                            // record the op to be removed
+                            toRemoved.emplace_back(successor);
+                            toRemovedSuccessor.emplace_back(successor);
+                        }
+                    }
+                }
+
+                // remove the successor from the src transpose op
+                for (auto successor : toRemovedSuccessor)
+                    transOp->removeSuccessors(successor);
+                if (transOp->getSuccessors().size() == 0)
+                    toRemoved.emplace_back(transOp);
+            }
+        }
+
+        // remove the useless transpose op
+        // for (auto op : toRemoved) {
+        //     removeOperator(op);
+        // }
+
+        
+        /// opt rule 2: fuse transpose and matmul op when the input of matmul has trans attr
     }
 
     Tensor GraphObj::getTensor(int fuid) const
@@ -148,12 +205,17 @@ namespace infini
         // topological sorting first
         IT_ASSERT(topo_sort() == true);
 
-        // =================================== 作业 ===================================
-        // TODO：利用 allocator 给计算图分配内存
-        // HINT: 获取分配好的内存指针后，可以调用 tensor 的 setDataBlob 函数给 tensor 绑定内存
-        // =================================== 作业 ===================================
-
         allocator.info();
+        std::vector<size_t> offs;
+        for (auto vec : tensors) {
+            offs.push_back(allocator.alloc(vec->getBytes()));
+        }
+
+        auto *ptr = allocator.getPtr();
+        for (size_t i = 0; i < tensors.size(); i++) {
+            auto blob = make_ref<BlobObj>(this->runtime, ptr + offs[i]);
+            tensors[i]->setDataBlob(blob);
+        }
     }
 
     Tensor GraphObj::addTensor(Shape dim, DataType dtype)

@@ -23,10 +23,6 @@ namespace infini
 
     optional<vector<Shape>> MatmulObj::inferShape(const TensorVec &inputs)
     {
-        // =================================== 作业 ===================================
-        // TODO：返回经过 matmul 操作后的 shape
-        // REF: https://github.com/onnx/onnx/blob/main/docs/Operators.md#gemm
-        // =================================== 作业 ===================================
         Shape A = inputs[0]->getDims();
         Shape B = inputs[1]->getDims();
         Shape res(A.size(), 0);
