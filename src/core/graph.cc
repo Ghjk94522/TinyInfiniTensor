@@ -106,63 +106,144 @@ namespace infini
         // TODO: 设计一个算法来实现指定的图优化规则
         // 图优化规则如下：
         // 1. 去除冗余的算子（例如，两个相邻的算子都是 transpose 算子，且做的是相反的操作，可以将其全部删除）
-        // 2. 合并算子（例如，矩阵乘算子中含有属性transA、transB，如果其输入存在transpose，且对最后两个维度做交换，就可以将transpose融入到矩阵乘算子的属性中去）
         // =================================== 作业 ===================================
 
-        /// opt rule 1: del the oppesite transpose ops
+        /// opt rule 1: del the redundant transpose ops
         if (!this->sorted)
             topo_sort();
 
-        std::vector<Operator> toRemoved;
+        std::vector<Operator> opToRemove;
+        std::vector<Tensor> tensorToRemove;
 
         for (auto op : ops) {
-            if (auto transOp = dynamic_cast<TransposeObj *>(op.get())) {
+            if (op->getOpType() == OpType::Transpose) {
                 std::vector<Operator> toRemovedSuccessor;
-                for (auto successor : transOp->getSuccessors()) {
-                    if (auto transOpSuc = dynamic_cast<TransposeObj *>(successor.get())) {
-                        if (transOp->getOutput() == transOpSuc->getInputs(0)) {
+                for (auto successor : op->getSuccessors()) {
+                    if (successor->getOpType() == OpType::Transpose) {
+                        if (op->getOutput() == successor->getInputs(0)) {
                             // now check if the permute same
+                            auto transOp = std::dynamic_pointer_cast<TransposeObj>(op);
+                            auto transOpSuc = std::dynamic_pointer_cast<TransposeObj>(successor);
                             auto permA = transOp->getPermute();
                             auto permB = transOpSuc->getPermute();
                             if (permA != permB)
                                 continue;
-                            
-                            auto oriTensor = transOp->getInputs(0);
-                            auto dstTensor = transOpSuc->getOutput();
+
+                            auto oriTensor = op->getInputs(0);
+                            auto dstTensor = successor->getOutput();
+                            auto midTensor = op->getOutput();
 
                             // replace all uses with the oriTensor
-                            for (auto op : dstTensor->getTargets()) {
-                                auto tarInputs = op->getInputs();
-                                auto iter = find(tarInputs.begin(), tarInputs.end(), dstTensor);
-                                IT_ASSERT(iter != tarInputs.end(), "can not find tensor in tar op");
-
-                                *iter = oriTensor;
-                                oriTensor->addTarget(op);
-                                dstTensor->removeTarget(op);
+                            for (auto tarOp : dstTensor->getTargets()) {
+                                auto tarInputs = tarOp->getInputs();
+                                for (size_t i = 0; i < tarInputs.size(); i++) {
+                                    if (tarInputs[i] == dstTensor) {
+                                        tarOp->setInput(i, oriTensor);
+                                        oriTensor->addTarget(tarOp);
+                                        tarOp->removePredecessors(successor);
+                                        if (auto pred = oriTensor->getSource())
+                                            tarOp->addPredecessors(pred);
+                                    }
+                                }
                             }
 
-                            // record the op to be removed
-                            toRemoved.emplace_back(successor);
+                            // record the ops and tensors to be removed
+                            opToRemove.emplace_back(successor);
                             toRemovedSuccessor.emplace_back(successor);
+                            tensorToRemove.emplace_back(dstTensor);
+                            tensorToRemove.emplace_back(midTensor);
                         }
                     }
                 }
 
                 // remove the successor from the src transpose op
-                for (auto successor : toRemovedSuccessor)
-                    transOp->removeSuccessors(successor);
-                if (transOp->getSuccessors().size() == 0)
-                    toRemoved.emplace_back(transOp);
+                for (auto successor : toRemovedSuccessor) {
+                    op->removeSuccessors(successor);
+                }
+                if (op->getSuccessors().empty())
+                    opToRemove.emplace_back(op);
             }
         }
 
-        // remove the useless transpose op
-        // for (auto op : toRemoved) {
-        //     removeOperator(op);
-        // }
+        // remove the useless transpose op and its relationship
+        for (auto op : opToRemove) {
+            for (auto opInput : op->getInputs()) {
+                opInput->removeTarget(op);
+            }
 
-        
+            removeOperator(op);
+        }
+        opToRemove.clear();
+
+        // remove the useless tensor
+        for (auto tensor : tensorToRemove) {
+            removeTensor(tensor);
+        }
+        tensorToRemove.clear();
+
         /// opt rule 2: fuse transpose and matmul op when the input of matmul has trans attr
+        for (auto op : ops) {
+            if (op->getOpType() == OpType::MatMul) {
+                auto matmulOp = as<MatmulObj>(op);
+                for (size_t f = 0; f < 2; f++) {
+                    // which means 0 => A, 1 => B
+                    auto inputTensor = op->getInputs(f);
+                    if(auto inputOp = inputTensor->getSource()) {
+                        if (inputOp->getOpType() == OpType::Transpose) {
+                            // check the transpose op
+                            auto transposeOp = as<TransposeObj>(inputOp);
+                            auto perm = transposeOp->getPermute();
+                            auto isAlmostPerm = [] (std::vector<int>& v) -> bool {
+                                size_t n = v.size();
+                                for (size_t i = 0; i < n - 2; i++) {
+                                    if (v[i] != static_cast<int>(i)) 
+                                        return false;
+                                }
+                                if (v[n - 2] != static_cast<int>(n - 1) || v[n - 1] != static_cast<int>(n - 2))
+                                    return false;
+                                return true;
+                            };
+
+                            if (!isAlmostPerm(perm))
+                                continue;
+                            
+                            // remove the transpose and set new operand for matmul op
+                            auto oriTensor = inputOp->getInputs(0);
+                            auto dstTensor = inputOp->getOutput();
+                            matmulOp->setInput(f, oriTensor);
+                            oriTensor->addTarget(op);
+                            if (f == 0) {
+                                matmulOp->setTransA(!matmulOp->getTransA());
+                            } else {
+                                matmulOp->setTransB(!matmulOp->getTransB());
+                            }
+                            matmulOp->removePredecessors(inputOp);
+                            if (auto oriOp = oriTensor->getSource())
+                                matmulOp->addPredecessors(oriOp);
+                            inputOp->removeSuccessors(op);
+                            if (inputOp->getSuccessors().empty())
+                                opToRemove.push_back(inputOp);
+                            tensorToRemove.push_back(dstTensor);
+                        }
+                    }
+                }
+            }
+        }
+
+        for (auto op : opToRemove) {
+            for (auto opInput : op->getInputs()) {
+                opInput->removeTarget(op);
+            }
+
+            removeOperator(op);
+        }
+        
+        // remove all useless tensors
+        for (auto tensor : tensorToRemove) {
+            removeTensor(tensor);
+        }
+
+        topo_sort();
     }
 
     Tensor GraphObj::getTensor(int fuid) const
@@ -211,7 +292,7 @@ namespace infini
             offs.push_back(allocator.alloc(vec->getBytes()));
         }
 
-        auto *ptr = allocator.getPtr();
+        auto *ptr = static_cast<char *>(allocator.getPtr());
         for (size_t i = 0; i < tensors.size(); i++) {
             auto blob = make_ref<BlobObj>(this->runtime, ptr + offs[i]);
             tensors[i]->setDataBlob(blob);
